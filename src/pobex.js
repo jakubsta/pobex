@@ -45,6 +45,23 @@ function getFunctionDeps(f) {
   return deps;
 }
 
+function getGetter(target, key) {
+  const descriptor = Object.getOwnPropertyDescriptor(target, key);
+
+  if (!descriptor) {
+    const targetPrototype = Object.getPrototypeOf(target);
+    if (targetPrototype !== null) {
+      return getGetter(targetPrototype, key);
+    }
+  }
+
+  return descriptor.get;
+}
+
+function isGetter(target, key) {
+  return !!getGetter(target, key);
+}
+
 export function notify(f, callback) {
   const deps = getFunctionDeps(f);
   deps.forEach(({ store, property }) => {
@@ -78,6 +95,11 @@ export function observable(target) {
         get(target, key) {
           if (depsDetecting) {
             deps.push({ store: target, property: key });
+          }
+
+          if (isGetter(target, key)) {
+            const getter = getGetter(target, key);
+            return getter.call(proxyInstance);
           }
 
           return target[key];

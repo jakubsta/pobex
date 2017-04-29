@@ -27,6 +27,7 @@ describe('Observing getter(computed value)', () => {
 
     const cancel = autorun(testFunc);
     store.prop1 = 20;
+    expect(testFunc).toHaveBeenCalledTimes(2);
     store.prop2 = 1;
     expect(testFunc).toHaveBeenCalledTimes(3);
 

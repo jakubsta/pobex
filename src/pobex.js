@@ -36,26 +36,36 @@ function emit(store, property) {
   }
 }
 
+function uniqueDeps(deps) {
+  return deps
+    .filter(({ store, property }, index) =>
+      !deps.find((dep, i) => (
+        i > index &&
+        dep.store === store &&
+        dep.property === property)));
+}
+
 function getFunctionDeps(f) {
   deps = [];
   depsDetecting = true;
   f();
   depsDetecting = false;
 
-  return deps;
+  return uniqueDeps(deps);
 }
 
 function getGetter(target, key) {
   const descriptor = Object.getOwnPropertyDescriptor(target, key);
 
-  if (!descriptor) {
-    const targetPrototype = Object.getPrototypeOf(target);
-    if (targetPrototype !== null) {
-      return getGetter(targetPrototype, key);
-    }
+  if (descriptor) {
+    return descriptor.get;
   }
 
-  return descriptor.get;
+  const targetPrototype = Object.getPrototypeOf(target);
+  if (targetPrototype !== null) {
+    return getGetter(targetPrototype, key);
+  }
+  return undefined;
 }
 
 function isGetter(target, key) {

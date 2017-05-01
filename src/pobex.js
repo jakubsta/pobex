@@ -17,12 +17,24 @@ function subscribe(store, property, listener) {
   }
 }
 
+function subscribeMultiple(stores, listener) {
+  stores.forEach(({ store, property }) => {
+    subscribe(store, property, listener);
+  });
+}
+
 function unsubscribe(store, property, listener) {
   const storeListeners = listeners.get(store);
   if (storeListeners[property]) {
     storeListeners[property] = storeListeners[property]
       .filter((l) => l !== listener);
   }
+}
+
+function unsubscribeMultiple(stores, listener) {
+  stores.forEach(({ store, property }) => {
+    unsubscribe(store, property, listener);
+  });
 }
 
 function emit(store, property) {
@@ -45,13 +57,32 @@ function uniqueDeps(deps) {
         dep.property === property)));
 }
 
+function areTheSameDeps(deps0, deps1) {
+  if (deps0.length !== deps1.length) {
+    return false;
+  }
+
+  return deps0.reduce((acc, d0) =>
+    acc && !!deps1.find((d1) =>
+      d0.store === d1.store &&
+      d0.property === d1.property)
+    , true);
+}
+
 function getFunctionDeps(f) {
+  const prevDeps = deps;
+  const prevDepsDetecting = depsDetecting;
+
   deps = [];
   depsDetecting = true;
   f();
-  depsDetecting = false;
 
-  return uniqueDeps(deps);
+  const newDeps = uniqueDeps(deps);
+
+  deps = prevDeps;
+  depsDetecting = prevDepsDetecting;
+
+  return newDeps;
 }
 
 function getGetter(target, key) {
@@ -72,17 +103,39 @@ function isGetter(target, key) {
   return !!getGetter(target, key);
 }
 
+function getGetterValue(getter) {
+  const prevDepsDetecting = depsDetecting;
+
+  depsDetecting = false;
+  const value = getter();
+  depsDetecting = prevDepsDetecting;
+
+  return value;
+}
+
+function observeGetter(getter, target, key) {
+  let deps = getFunctionDeps(getter);
+
+  const onDepChange = () => {
+    const newDeps = getFunctionDeps(getter);
+
+    if (!areTheSameDeps(deps, newDeps)) {
+      unsubscribeMultiple(deps, onDepChange);
+      deps = newDeps;
+      subscribeMultiple(deps, onDepChange);
+    }
+
+    emit(target, key);
+  };
+
+  subscribeMultiple(deps, onDepChange);
+}
+
 export function notify(f, callback) {
   const deps = getFunctionDeps(f);
-  deps.forEach(({ store, property }) => {
-    subscribe(store, property, callback);
-  });
+  subscribeMultiple(deps, callback);
 
-  return () => {
-    deps.forEach(({ store, property }) => {
-      unsubscribe(store, property, callback);
-    });
-  };
+  return () => unsubscribeMultiple(deps, callback);
 }
 
 export function autorun(f) {
@@ -108,8 +161,13 @@ export function observable(target) {
           }
 
           if (isGetter(target, key)) {
-            const getter = getGetter(target, key);
-            return getter.call(proxyInstance);
+            const getter = getGetter(target, key).bind(proxyInstance);
+
+            if (depsDetecting) {
+              observeGetter(getter, target, key);
+            }
+
+            return getGetterValue(getter);
           }
 
           return target[key];
